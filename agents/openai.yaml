@@ -1,0 +1,6 @@
+interface:
+  display_name: "毕业生简历岗位定制"
+  short_description: "按岗位描述反推并同源生成中文简历"
+  default_prompt: "Use $graduate-resume-tailor to analyze the JD, ask for missing critical information, create resume-data.json, then generate and verify consistent HTML/DOCX/PDF resume artifacts."
+policy:
+  allow_implicit_invocation: true
