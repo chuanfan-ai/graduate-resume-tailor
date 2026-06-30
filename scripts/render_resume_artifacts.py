@@ -800,7 +800,7 @@ def write_pdf_chrome(html_path, pdf_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Render Chinese graduate resume artifacts from JSON.')
+    parser = argparse.ArgumentParser(description='Render Chinese graduate resume HTML/PDF artifacts from JSON.')
     parser.add_argument('input_json')
     parser.add_argument('--out-dir', default='.')
     parser.add_argument('--formats', default='html')
@@ -813,16 +813,15 @@ def main():
     target = data.get('target', {})
     stem = safe_name('-'.join(x for x in [basics.get('name'), target.get('role') or basics.get('title'), '简历'] if x))
     formats = {x.strip().lower() for x in args.formats.split(',') if x.strip()}
+    if 'docx' in formats:
+        print('WARNING: 本 skill 已取消 Word/DOCX 交付，已忽略 docx；只生成 HTML 和 PDF。', file=sys.stderr)
+        formats.discard('docx')
 
     outputs = []
     html_path = out_dir / f'{stem}.html'
     if formats & {'html', 'pdf'}:
         html_path.write_text(render_html(data), encoding='utf-8')
         outputs.append(html_path)
-    if 'docx' in formats:
-        docx_path = out_dir / f'{stem}.docx'
-        write_docx(data, docx_path)
-        outputs.append(docx_path)
     if 'pdf' in formats:
         pdf_path = out_dir / f'{stem}.pdf'
         ok, _ = try_pdf(data, html_path, pdf_path)

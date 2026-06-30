@@ -1,6 +1,6 @@
 ---
 name: graduate-resume-tailor
-description: 中文毕业生简历优化与生成 skill。Use when the user provides or wants to use a JD/job description screenshot, job posting text, job document, resume draft, self-introduction, campus experience, internship/project details, or asks to create/optimize/tailor a Chinese graduate resume for a specific role. The skill reverse-engineers the job description, maps limited student experience into role-relevant evidence, asks for missing critical information, then creates a polished resume with HTML/PDF as visual delivery formats and DOCX only as a conservative editable version when explicitly needed.
+description: 中文毕业生简历优化与生成 skill。Use when the user provides or wants to use a JD/job description screenshot, job posting text, job document, resume draft, self-introduction, campus experience, internship/project details, or asks to create/optimize/tailor a Chinese graduate resume for a specific role. The skill reverse-engineers the job description, maps limited student experience into role-relevant evidence, asks for missing critical information, then creates polished HTML and PDF resume artifacts only.
 ---
 
 # Graduate Resume Tailor
@@ -19,7 +19,7 @@ description: 中文毕业生简历优化与生成 skill。Use when the user prov
 - `references/chinese-resume-standards.md`：决定中文毕业生简历结构、行业风格、照片使用和内容取舍时读取。
 - `references/template-decision.md`：根据岗位、公司、个人经历强弱生成 `design_brief` 时读取。
 - `references/design-system.md`：设计 HTML 版式、配色、模块骨架、照片区和动态变化时读取。
-- `references/artifact-generation.md`：需要生成 HTML、DOCX、PDF 或使用脚本时读取。
+- `references/artifact-generation.md`：需要生成 HTML、PDF 或使用脚本时读取。
 
 ## 默认流程
 
@@ -30,7 +30,7 @@ description: 中文毕业生简历优化与生成 skill。Use when the user prov
 5. 追问关键信息：缺少阻塞信息时必须问，不要硬写。每轮最多 6 个问题，按影响最终简历质量排序。中文简历默认询问是否提供证件照/职业照；用户不提供时生成无照片版本。用户说“不知道”“你先补”“没有”时，用克制占位或删除对应表达。
 6. 生成 `design_brief`：根据岗位、公司品牌、用户经历强弱、照片有无，确定版式骨架、配色、模块顺序、信息密度和禁用项。不要随机换模板，要给出有理由的设计选择。
 7. 生成简历方案：先给 JD 拆解 + 经历匹配分析，再给最终简历。分析、风险、建议、求职说明必须放在简历外，不能混入简历正文。
-8. 生成交付物：默认 HTML + PDF。PDF 必须从 HTML 打印/渲染链路生成，作为可打印和可投递的视觉版本。Word 只在用户明确要求可编辑文档时生成，定位为“可编辑内容版”，不得承诺与 HTML/PDF 视觉完全一致。多格式交付必须从同一个 `resume-data.json` 生成，并运行一致性校验；不允许临时手写某一种格式后混合交付。
+8. 生成交付物：只生成 HTML + PDF。PDF 必须从 HTML 打印/渲染链路生成，作为可打印和可投递的视觉版本。不要生成 Word/DOCX；用户要求 Word 时，说明当前 skill 已取消 Word 交付，只提供 HTML 和 PDF。多格式交付必须从同一个 `resume-data.json` 生成，并运行一致性校验；不允许临时手写某一种格式后混合交付。
 
 ## 追问规则
 
@@ -58,7 +58,7 @@ description: 中文毕业生简历优化与生成 skill。Use when the user prov
 3. `简历策略`：一页结构、主打标签、删减原则、视觉风格。
 4. `design_brief`：版式骨架、品牌相邻色、照片策略、模块顺序、信息密度。
 5. `最终简历正文`：可复制的中文简历内容。
-5. `交付物`：HTML 路径，按要求补 DOCX/PDF 路径或说明回退原因。
+5. `交付物`：HTML 路径、PDF 路径，或说明 PDF 回退原因。
 
 如果用户明确只要最终简历，可以压缩分析，但仍要在内部完成 JD 拆解和证据映射。
 
@@ -80,22 +80,22 @@ description: 中文毕业生简历优化与生成 skill。Use when the user prov
 
 ## 稳定调用约定
 
-把 `resume-data.json` 作为唯一事实源：用户资料、目标岗位、JD 反推后的简历内容、`design_brief` 都必须先落进这份结构化数据。HTML、PDF 是视觉交付结果；DOCX 是同源可编辑内容结果，不作为视觉母版。
+把 `resume-data.json` 作为唯一事实源：用户资料、目标岗位、JD 反推后的简历内容、`design_brief` 都必须先落进这份结构化数据。HTML、PDF 是唯一交付结果。
 
 调用顺序固定：
 
 1. 生成或更新 `resume-data.json`。
-2. 用 `scripts/render_resume_artifacts.py` 生成需要的格式；默认 `html,pdf`，只有用户要求 Word 时再加 `docx`。
+2. 用 `scripts/render_resume_artifacts.py` 生成 `html,pdf`。
 3. 多格式交付时必须运行 `scripts/verify_resume_artifacts.py --formats 实际格式列表`。
-4. PDF 必须渲染检查，优先使用 Chrome 从 HTML 打印生成。DOCX 必须用 `render_docx.py` 或系统预览检查；若观感不达标，只能标为可编辑版，不得当作精美版交付。
+4. PDF 必须渲染检查，优先使用 Chrome 从 HTML 打印生成。
 
-禁止把 HTML 当成唯一真相后再手工仿写 Word/PDF，也禁止在三种格式之间分别改文案。PDF 如果不能从 HTML 生成，就不要交付低质 PDF；保留 HTML 并说明本地 PDF 链路不可用。
+禁止把 HTML 当成唯一真相后再手工仿写 PDF，也禁止在不同格式之间分别改文案。PDF 如果不能从 HTML 生成，就不要交付低质 PDF；保留 HTML 并说明本地 PDF 链路不可用。
 
 ## 交付要求
 
 生成文件前先说明会创建哪些文件和路径。默认把独立交付物放在用户指定目录；未指定时放在当前工作区或用户的智能体交付物目录下，使用中文任务名命名。
 
-HTML 必须是完整单文件，包含可打印 CSS，适配 A4。PDF 必须从 HTML 打印/渲染得到，版式要达到模板市场基础款观感：有明确视觉骨架、稳定模块标签、照片策略、清晰信息层级和打印预览检查；不能像普通报告模板。DOCX 只作为保守可编辑版，使用稳定单栏结构，不做复杂侧栏仿排版。无法生成高质量 PDF 时保留 HTML，并说明用户可用浏览器打印成 PDF。
+HTML 必须是完整单文件，包含可打印 CSS，适配 A4。PDF 必须从 HTML 打印/渲染得到，版式要达到模板市场基础款观感：有明确视觉骨架、稳定模块标签、照片策略、清晰信息层级和打印预览检查；不能像普通报告模板。无法生成高质量 PDF 时保留 HTML，并说明用户可用浏览器打印成 PDF。
 
 可用辅助脚本：
 

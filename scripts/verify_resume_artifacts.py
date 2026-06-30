@@ -86,10 +86,10 @@ def expected_fragments(data):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Verify generated resume HTML/DOCX/PDF consistency.')
+    parser = argparse.ArgumentParser(description='Verify generated resume HTML/PDF consistency.')
     parser.add_argument('resume_json')
     parser.add_argument('--out-dir', required=True)
-    parser.add_argument('--formats', default='html,docx,pdf', help='Comma-separated formats to verify.')
+    parser.add_argument('--formats', default='html,pdf', help='Comma-separated formats to verify.')
     parser.add_argument('--strict-pdf-text', action='store_true', help='Require every JSON fragment to be extractable from the PDF text layer.')
     parser.add_argument('--mtime-window', type=float, default=120.0, help='Maximum allowed modification time drift across artifacts in seconds.')
     args = parser.parse_args()
@@ -100,6 +100,9 @@ def main():
     stem = '-'.join(x for x in [basics.get('name'), target.get('role') or basics.get('title'), '简历'] if x)
     out_dir = Path(args.out_dir)
     requested = {x.strip().lower() for x in args.formats.split(',') if x.strip()}
+    if 'docx' in requested:
+        print('WARNING: 本 skill 已取消 Word/DOCX 交付，已忽略 docx 校验。')
+        requested.discard('docx')
     paths_all = {
         'html': out_dir / f'{stem}.html',
         'docx': out_dir / f'{stem}.docx',
