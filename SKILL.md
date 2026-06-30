@@ -1,6 +1,6 @@
 ---
 name: graduate-resume-tailor
-description: 中文毕业生简历优化与生成 skill。Use when the user provides or wants to use a JD/job description screenshot, job posting text, job document, resume draft, self-introduction, campus experience, internship/project details, or asks to create/optimize/tailor a Chinese graduate resume for a specific role. The skill reverse-engineers the job description, maps limited student experience into role-relevant evidence, asks for missing critical information, then creates a polished one-page resume by default with HTML first and DOCX/PDF when local conditions allow.
+description: 中文毕业生简历优化与生成 skill。Use when the user provides or wants to use a JD/job description screenshot, job posting text, job document, resume draft, self-introduction, campus experience, internship/project details, or asks to create/optimize/tailor a Chinese graduate resume for a specific role. The skill reverse-engineers the job description, maps limited student experience into role-relevant evidence, asks for missing critical information, then creates a polished resume with HTML/PDF as visual delivery formats and DOCX only as a conservative editable version when explicitly needed.
 ---
 
 # Graduate Resume Tailor
@@ -30,7 +30,7 @@ description: 中文毕业生简历优化与生成 skill。Use when the user prov
 5. 追问关键信息：缺少阻塞信息时必须问，不要硬写。每轮最多 6 个问题，按影响最终简历质量排序。中文简历默认询问是否提供证件照/职业照；用户不提供时生成无照片版本。用户说“不知道”“你先补”“没有”时，用克制占位或删除对应表达。
 6. 生成 `design_brief`：根据岗位、公司品牌、用户经历强弱、照片有无，确定版式骨架、配色、模块顺序、信息密度和禁用项。不要随机换模板，要给出有理由的设计选择。
 7. 生成简历方案：先给 JD 拆解 + 经历匹配分析，再给最终简历。分析、风险、建议、求职说明必须放在简历外，不能混入简历正文。
-8. 生成交付物：默认 HTML；用户要求 Word/PDF 时，本地条件允许就创建 `.docx` / `.pdf`。多格式交付必须从同一个 `resume-data.json` 用同一条脚本命令生成，并运行一致性校验；不允许临时手写某一种格式后混合交付。
+8. 生成交付物：默认 HTML + PDF。PDF 必须从 HTML 打印/渲染链路生成，作为可打印和可投递的视觉版本。Word 只在用户明确要求可编辑文档时生成，定位为“可编辑内容版”，不得承诺与 HTML/PDF 视觉完全一致。多格式交付必须从同一个 `resume-data.json` 生成，并运行一致性校验；不允许临时手写某一种格式后混合交付。
 
 ## 追问规则
 
@@ -80,27 +80,27 @@ description: 中文毕业生简历优化与生成 skill。Use when the user prov
 
 ## 稳定调用约定
 
-把 `resume-data.json` 作为唯一事实源：用户资料、目标岗位、JD 反推后的简历内容、`design_brief` 都必须先落进这份结构化数据。HTML、DOCX、PDF 都只是同源渲染结果。
+把 `resume-data.json` 作为唯一事实源：用户资料、目标岗位、JD 反推后的简历内容、`design_brief` 都必须先落进这份结构化数据。HTML、PDF 是视觉交付结果；DOCX 是同源可编辑内容结果，不作为视觉母版。
 
 调用顺序固定：
 
 1. 生成或更新 `resume-data.json`。
-2. 用 `scripts/render_resume_artifacts.py` 一次性生成需要的格式。
-3. 多格式交付时必须运行 `scripts/verify_resume_artifacts.py`。
-4. PDF 必须渲染检查；DOCX 必须用 `render_docx.py` 或系统预览检查。渲染链路不可用时必须说明，不得声称已视觉验收。
+2. 用 `scripts/render_resume_artifacts.py` 生成需要的格式；默认 `html,pdf`，只有用户要求 Word 时再加 `docx`。
+3. 多格式交付时必须运行 `scripts/verify_resume_artifacts.py --formats 实际格式列表`。
+4. PDF 必须渲染检查，优先使用 Chrome 从 HTML 打印生成。DOCX 必须用 `render_docx.py` 或系统预览检查；若观感不达标，只能标为可编辑版，不得当作精美版交付。
 
-禁止把 HTML 当成唯一真相后再手工仿写 Word/PDF，也禁止在三种格式之间分别改文案。
+禁止把 HTML 当成唯一真相后再手工仿写 Word/PDF，也禁止在三种格式之间分别改文案。PDF 如果不能从 HTML 生成，就不要交付低质 PDF；保留 HTML 并说明本地 PDF 链路不可用。
 
 ## 交付要求
 
 生成文件前先说明会创建哪些文件和路径。默认把独立交付物放在用户指定目录；未指定时放在当前工作区或用户的智能体交付物目录下，使用中文任务名命名。
 
-HTML 必须是完整单文件，包含可打印 CSS，适配 A4。版式要达到模板市场基础款观感：有明确视觉骨架、稳定模块标签、照片策略、清晰信息层级和打印预览检查；不能像普通报告模板。DOCX/PDF 尽量本地生成；无法生成时保留 HTML，并说明用户可用浏览器打印成 PDF。
+HTML 必须是完整单文件，包含可打印 CSS，适配 A4。PDF 必须从 HTML 打印/渲染得到，版式要达到模板市场基础款观感：有明确视觉骨架、稳定模块标签、照片策略、清晰信息层级和打印预览检查；不能像普通报告模板。DOCX 只作为保守可编辑版，使用稳定单栏结构，不做复杂侧栏仿排版。无法生成高质量 PDF 时保留 HTML，并说明用户可用浏览器打印成 PDF。
 
 可用辅助脚本：
 
 ```bash
-python3 scripts/render_resume_artifacts.py resume-data.json --out-dir 输出目录 --formats html,docx,pdf
+python3 scripts/render_resume_artifacts.py resume-data.json --out-dir 输出目录 --formats html,pdf
 ```
 
 脚本输入格式和一致性门槛见 `references/artifact-generation.md`。如果用户材料复杂，先由 agent 生成带 `design_brief` 的结构化 JSON，再调用脚本。需要更精细排版时，可以增强脚本或模板，但最终仍要回到同源生成与一致性校验。

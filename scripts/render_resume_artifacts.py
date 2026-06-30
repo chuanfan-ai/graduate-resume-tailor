@@ -6,6 +6,7 @@ import shutil
 import sys
 import subprocess
 import zipfile
+import os
 from pathlib import Path
 
 
@@ -66,6 +67,7 @@ def get_design(data):
         'tone': brief.get('tone') or '专业、清晰、可投递',
         'palette': palette,
         'density': brief.get('density') or 'balanced',
+        'print_scale': float(brief.get('print_scale') or 1),
         'photo': brief.get('photo') or {},
         'module_order': brief.get('module_order') or [],
         'avoid': brief.get('avoid') or []
@@ -154,6 +156,7 @@ def css_tokens(design):
 
 def base_css(design):
     layout = design['layout']
+    print_scale = max(0.72, min(1.0, float(design.get('print_scale') or 1)))
     if layout == 'sidebar-card':
         layout_css = '''
 .page { overflow: hidden; }
@@ -232,7 +235,7 @@ h3 {{ margin: 0; font-size: 13.6px; color: var(--ink); }}
 ul {{ margin: 5px 0 0; padding-left: 16px; }}
 li {{ margin: 3px 0; font-size: 11.9px; }}
 @page {{ size: A4; margin: 0; }}
-@media print {{ body {{ background: #fff; }} .page {{ margin: 0; box-shadow: none; width: 210mm; min-height: 297mm; }} }}
+@media print {{ body {{ background: #fff; }} .page {{ margin: 0; box-shadow: none; width: 210mm; min-height: auto; zoom: {print_scale}; }} .content {{ min-height: auto !important; }} }}
 {layout_css}'''
 
 
@@ -367,8 +370,6 @@ def write_docx_minimal(data, path):
 def write_docx(data, path):
     try:
         from docx import Document
-        from docx.enum.section import WD_SECTION
-        from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml import OxmlElement
         from docx.oxml.ns import qn
@@ -377,209 +378,129 @@ def write_docx(data, path):
         write_docx_minimal(data, path)
         return
 
-    def hex_clean(value, default):
-        return str(value or default).replace('#', '').upper()
-
-    def set_cell_shading(cell, fill):
-        tc_pr = cell._tc.get_or_add_tcPr()
-        shd = tc_pr.find(qn('w:shd'))
-        if shd is None:
-            shd = OxmlElement('w:shd')
-            tc_pr.append(shd)
-        shd.set(qn('w:fill'), hex_clean(fill, 'FFFFFF'))
-
-    def set_cell_margins(cell, top=120, start=120, bottom=120, end=120):
-        tc_pr = cell._tc.get_or_add_tcPr()
-        tc_mar = tc_pr.first_child_found_in('w:tcMar')
-        if tc_mar is None:
-            tc_mar = OxmlElement('w:tcMar')
-            tc_pr.append(tc_mar)
-        for m, v in [('top', top), ('start', start), ('bottom', bottom), ('end', end)]:
-            node = tc_mar.find(qn(f'w:{m}'))
-            if node is None:
-                node = OxmlElement(f'w:{m}')
-                tc_mar.append(node)
-            node.set(qn('w:w'), str(v))
-            node.set(qn('w:type'), 'dxa')
-
-    def set_cell_border(cell, color='EAD8C9', size='6'):
-        tc_pr = cell._tc.get_or_add_tcPr()
-        borders = tc_pr.first_child_found_in('w:tcBorders')
-        if borders is None:
-            borders = OxmlElement('w:tcBorders')
-            tc_pr.append(borders)
-        for edge in ('top', 'left', 'bottom', 'right'):
-            tag = f'w:{edge}'
-            node = borders.find(qn(tag))
-            if node is None:
-                node = OxmlElement(tag)
-                borders.append(node)
-            node.set(qn('w:val'), 'single')
-            node.set(qn('w:sz'), size)
-            node.set(qn('w:space'), '0')
-            node.set(qn('w:color'), color)
-
-    def set_table_width(table, width_dxa):
-        tbl_pr = table._tbl.tblPr
-        tbl_w = tbl_pr.find(qn('w:tblW'))
-        if tbl_w is None:
-            tbl_w = OxmlElement('w:tblW')
-            tbl_pr.append(tbl_w)
-        tbl_w.set(qn('w:w'), str(width_dxa))
-        tbl_w.set(qn('w:type'), 'dxa')
-
-    def clear_para(paragraph):
-        paragraph.paragraph_format.space_before = Pt(0)
-        paragraph.paragraph_format.space_after = Pt(0)
-        paragraph.paragraph_format.line_spacing = 1.05
-
-    def add_run(paragraph, text, size=9, color='1D2730', bold=False):
-        run = paragraph.add_run(clean_visible_text(text))
-        run.font.name = 'Arial Unicode MS'
-        run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Arial Unicode MS')
-        run.font.size = Pt(size)
-        run.font.color.rgb = RGBColor.from_string(hex_clean(color, '1D2730'))
-        run.bold = bold
-        return run
-
-    def add_para(cell, text='', size=9, color='1D2730', bold=False, after=2, align=None):
-        p = cell.add_paragraph()
-        clear_para(p)
-        p.paragraph_format.space_after = Pt(after)
-        if align is not None:
-            p.alignment = align
-        add_run(p, text, size=size, color=color, bold=bold)
-        return p
-
-    def add_heading(cell, text, primary, accent):
-        p = cell.add_paragraph()
-        clear_para(p)
-        p.paragraph_format.space_before = Pt(5)
-        p.paragraph_format.space_after = Pt(4)
-        add_run(p, '▌ ', size=10, color=accent, bold=True)
-        add_run(p, text, size=10.5, color=primary, bold=True)
-        return p
-
-    def add_bullet(cell, text, left=0.36):
-        p = cell.add_paragraph(style='List Bullet')
-        p.paragraph_format.left_indent = Cm(left)
-        p.paragraph_format.first_line_indent = Cm(-0.18)
-        p.paragraph_format.space_after = Pt(1.5)
-        p.paragraph_format.line_spacing = 1.06
-        add_run(p, text, size=8.4, color='1D2730')
-        return p
-
+    # Word is an editable document, not the visual master. Keep it conservative so
+    # it survives WPS, Word, Pages, and recruiter-side edits.
     basics = data.get('basics', {})
     target = data.get('target', {})
     design = get_design(data)
     palette = design['palette']
+
+    def hex_clean(value, default):
+        return str(value or default).replace('#', '').upper()
+
     primary = hex_clean(palette.get('primary'), '8F1F17')
     accent = hex_clean(palette.get('accent'), 'F4BD2A')
-    soft = hex_clean(palette.get('soft'), 'FFF2DF')
-    paper = hex_clean(palette.get('paper'), 'FFFAF2')
-    line = hex_clean(palette.get('line'), 'EAD8C9')
+    ink = hex_clean(palette.get('ink'), '1D2730')
+    muted = hex_clean(palette.get('muted'), '64717D')
 
     doc = Document()
     section = doc.sections[0]
     section.page_width = Cm(21)
     section.page_height = Cm(29.7)
-    section.top_margin = Cm(0.55)
-    section.bottom_margin = Cm(0.55)
-    section.left_margin = Cm(0.7)
-    section.right_margin = Cm(0.7)
+    section.top_margin = Cm(1.15)
+    section.bottom_margin = Cm(1.0)
+    section.left_margin = Cm(1.25)
+    section.right_margin = Cm(1.25)
 
     for style_name in ['Normal', 'List Bullet']:
         style = doc.styles[style_name]
         style.font.name = 'Arial Unicode MS'
         style._element.rPr.rFonts.set(qn('w:eastAsia'), 'Arial Unicode MS')
-        style.font.size = Pt(8.6)
+        style.font.size = Pt(9)
 
-    usable_width = Cm(19.6)
+    def add_run(paragraph, text, size=9, color=ink, bold=False):
+        run = paragraph.add_run(clean_visible_text(text))
+        run.font.name = 'Arial Unicode MS'
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Arial Unicode MS')
+        run.font.size = Pt(size)
+        run.font.color.rgb = RGBColor.from_string(hex_clean(color, ink))
+        run.bold = bold
+        return run
 
-    hero = doc.add_table(rows=1, cols=2)
-    hero.autofit = False
-    set_table_width(hero, 11120)
-    hero.columns[0].width = Cm(12.3)
-    hero.columns[1].width = Cm(7.3)
-    for cell in hero.row_cells(0):
-        set_cell_shading(cell, primary)
-        set_cell_margins(cell, top=260, start=320, bottom=240, end=320)
-        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-    left, right = hero.row_cells(0)
-    p = left.paragraphs[0]
-    clear_para(p)
-    add_run(p, basics.get('name') or '姓名', size=24, color='FFFFFF', bold=True)
-    p = add_para(left, f"应聘岗位：{target.get('role') or basics.get('title')}｜{target.get('company') or ''}", size=11.5, color=accent, bold=True, after=5)
-    add_para(left, (data.get('summary') or [''])[0], size=8.2, color='FFFFFF', after=0)
-    set_cell_border(right, color='FFFFFF', size='8')
-    add_para(right, '联系方式', size=8.6, color='FFFFFF', bold=True, after=5)
-    if basics.get('phone'):
-        add_para(right, f"电话：{basics['phone']}", size=8.2, color='FFFFFF', after=2)
-    if basics.get('email'):
-        add_para(right, f"邮箱：{basics['email']}", size=8.2, color='FFFFFF', after=2)
-    if basics.get('location'):
-        add_para(right, f"城市：{basics['location']}", size=8.2, color='FFFFFF', after=0)
+    def set_bottom_border(paragraph, color='D9C8B8', size='8'):
+        p_pr = paragraph._p.get_or_add_pPr()
+        borders = p_pr.find(qn('w:pBdr'))
+        if borders is None:
+            borders = OxmlElement('w:pBdr')
+            p_pr.append(borders)
+        bottom = borders.find(qn('w:bottom'))
+        if bottom is None:
+            bottom = OxmlElement('w:bottom')
+            borders.append(bottom)
+        bottom.set(qn('w:val'), 'single')
+        bottom.set(qn('w:sz'), size)
+        bottom.set(qn('w:space'), '3')
+        bottom.set(qn('w:color'), color)
 
-    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+    name = basics.get('name') or '姓名'
+    role = target.get('role') or basics.get('title') or '目标岗位'
+    company = target.get('company')
 
-    body = doc.add_table(rows=1, cols=2)
-    body.autofit = False
-    set_table_width(body, 11120)
-    body.columns[0].width = Cm(5.3)
-    body.columns[1].width = Cm(14.3)
-    sidebar, main = body.row_cells(0)
-    set_cell_shading(sidebar, soft)
-    set_cell_shading(main, paper)
-    set_cell_margins(sidebar, top=220, start=240, bottom=220, end=220)
-    set_cell_margins(main, top=220, start=320, bottom=220, end=220)
-    set_cell_border(sidebar, color=line, size='4')
-    set_cell_border(main, color=paper, size='2')
-    sidebar.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
-    main.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(2)
+    add_run(p, name, size=22, color=primary, bold=True)
 
-    add_heading(sidebar, '个人信息', primary, accent)
-    for label, value in infer_profile(data):
-        add_para(sidebar, label, size=7.4, color='64717D', after=0)
-        add_para(sidebar, value, size=8.5, color='1D2730', bold=True, after=4)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(2)
+    title = f'应聘岗位：{role}' + (f'｜{company}' if company else '')
+    add_run(p, title, size=11, color=primary, bold=True)
 
-    add_heading(sidebar, '能力标签', primary, accent)
-    for i in range(0, len(data.get('keywords') or []), 2):
-        row = '    '.join(data['keywords'][i:i+2])
-        add_para(sidebar, row, size=8, color=primary, bold=True, after=3, align=WD_ALIGN_PARAGRAPH.CENTER)
+    if target.get('industry'):
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_after = Pt(2)
+        add_run(p, f"行业方向：{target['industry']}", size=8.5, color=muted)
 
-    add_heading(main, '岗位摘要', primary, accent)
-    summary_table = main.add_table(rows=1, cols=3)
-    summary_table.autofit = False
-    for cell in summary_table.row_cells(0):
-        set_cell_shading(cell, 'FFFFFF')
-        set_cell_border(cell, color=line, size='6')
-        set_cell_margins(cell, top=120, start=120, bottom=120, end=120)
-    labels = ['岗位意愿', '能力基础', '发展方向']
-    for idx, txt in enumerate((data.get('summary') or [])[:3]):
-        cell = summary_table.cell(0, idx)
-        add_para(cell, labels[idx], size=8.2, color=primary, bold=True, after=2)
-        add_para(cell, txt, size=7.2, color='44505A', after=0)
+    contact_values = []
+    for label, value in contact_items(data):
+        contact_values.append(f'{label}：{value}')
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(6)
+    set_bottom_border(p, color=accent, size='10')
+    add_run(p, '联系方式：' + '  ·  '.join(contact_values), size=8.5, color=muted)
+
+    def heading(text):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(7)
+        p.paragraph_format.space_after = Pt(3)
+        set_bottom_border(p, color='EAD8C9', size='6')
+        add_run(p, '▌ ', size=11, color=accent, bold=True)
+        add_run(p, text, size=11, color=primary, bold=True)
+
+    if data.get('summary'):
+        heading('核心优势')
+        for line in data['summary']:
+            p = doc.add_paragraph(style='List Bullet')
+            p.paragraph_format.left_indent = Cm(0.48)
+            p.paragraph_format.first_line_indent = Cm(-0.18)
+            p.paragraph_format.space_after = Pt(1)
+            add_run(p, line, size=8.8, color=ink)
 
     for section_data in data.get('sections', []):
-        add_heading(main, section_data.get('title') or '', primary, accent)
+        heading(section_data.get('title') or '')
         for item in section_data.get('items', []):
-            p = main.add_paragraph()
-            clear_para(p)
+            p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(3)
-            p.paragraph_format.space_after = Pt(2)
-            add_run(p, item.get('heading') or '', size=9.1, color='1D2730', bold=True)
+            p.paragraph_format.space_after = Pt(1)
+            add_run(p, item.get('heading') or '', size=9.4, color=ink, bold=True)
             if item.get('meta'):
-                add_run(p, '    ' + clean_visible_text(item['meta']).replace('->', '→'), size=7.4, color='64717D')
+                add_run(p, '    ' + clean_visible_text(item['meta']).replace('->', '→'), size=8, color=muted)
             for bullet in item.get('bullets') or []:
-                add_bullet(main, bullet)
+                p = doc.add_paragraph(style='List Bullet')
+                p.paragraph_format.left_indent = Cm(0.48)
+                p.paragraph_format.first_line_indent = Cm(-0.18)
+                p.paragraph_format.space_after = Pt(0.8)
+                p.paragraph_format.line_spacing = 1.03
+                add_run(p, bullet, size=8.35, color=ink)
 
     if data.get('keywords'):
-        add_heading(main, '核心能力', primary, accent)
-        p = main.add_paragraph()
-        clear_para(p)
-        p.paragraph_format.space_after = Pt(2)
-        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        add_run(p, ' / '.join(clean_visible_text(kw) for kw in data['keywords']), size=8.2, color=primary, bold=True)
+        heading('核心能力')
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(0)
+        add_run(p, ' / '.join(clean_visible_text(kw) for kw in data['keywords']), size=8.5, color=primary, bold=True)
 
     doc.save(path)
 
@@ -804,6 +725,10 @@ def write_pdf_reportlab(data, pdf_path):
     return True
 
 def try_pdf(data, html_path, pdf_path):
+    Path(pdf_path).unlink(missing_ok=True)
+    ok, engine = write_pdf_chrome(html_path, pdf_path)
+    if ok:
+        return True, engine
     try:
         import weasyprint
         weasyprint.HTML(filename=str(html_path)).write_pdf(str(pdf_path))
@@ -817,6 +742,60 @@ def try_pdf(data, html_path, pdf_path):
             return True, 'wkhtmltopdf'
     if write_pdf_reportlab(data, pdf_path):
         return True, 'reportlab'
+    return False, None
+
+
+def chrome_candidates():
+    candidates = [
+        shutil.which('google-chrome'),
+        shutil.which('chromium'),
+        shutil.which('chromium-browser'),
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ]
+    return [Path(x) for x in candidates if x and Path(x).exists()]
+
+
+def write_pdf_chrome(html_path, pdf_path):
+    chrome = next(iter(chrome_candidates()), None)
+    if not chrome:
+        return False, None
+    Path(pdf_path).unlink(missing_ok=True)
+    profile_dir = Path('/tmp') / f'resume-chrome-profile-{os.getpid()}'
+    if profile_dir.exists():
+        shutil.rmtree(profile_dir, ignore_errors=True)
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        str(chrome),
+        '--headless=new',
+        '--disable-gpu',
+        '--disable-background-networking',
+        '--disable-component-update',
+        '--disable-default-apps',
+        '--disable-sync',
+        '--hide-scrollbars',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--print-to-pdf-no-header',
+        f'--user-data-dir={profile_dir}',
+        f'--print-to-pdf={pdf_path}',
+        Path(html_path).resolve().as_uri(),
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        proc.communicate(timeout=25)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.communicate(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate(timeout=3)
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+    if Path(pdf_path).exists() and Path(pdf_path).stat().st_size > 10000:
+        return True, 'chrome'
     return False, None
 
 
